@@ -1,7 +1,7 @@
 ---
 title: "Characterizing Automobiles"
-author: "Your Name Here"
-date: "03/17/2025"
+author: "Ted Yanez"
+date: "03/19/2025"
 
 format: 
   html:  # You will quite likely want to change all but the last one, to taste
@@ -26,6 +26,7 @@ sh(library(caret))
 sh(library(fastDummies))
 sh(library(class))
 sh(library(ISLR)) # for the "Auto" dataframe
+sh(library(pROC))
 ```
 
 # Dataframe
@@ -33,6 +34,7 @@ sh(library(ISLR)) # for the "Auto" dataframe
 - We use the `Auto` dataframe.
 
 ```{r df}
+auto=Auto
 head(Auto)
 ```
 
@@ -48,10 +50,26 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r regression}
-# Your code here
+m1 = lm(mpg ~ horsepower, Auto)
+m2 = lm(mpg ~ year, Auto)
+m3 = lm(mpg ~ horsepower + year, Auto)
+m4 = lm(mpg ~ horsepower * year, Auto)
+m5 = lm(mpg ~ ., Auto)
+
+get_rmse <- function(m) {
+    pred <- predict(m, newdata = Auto)
+    sqrt(mean((Auto$mpg - pred)^2))
+}
+
+unlist(lapply(list(m1, m2, m3, m4, m5), get_rmse))
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: Aside from the model that included all of the variables (m5), it would seem that the most accurate model would be m4, which takes the interaction between horsepower and year into consideration. I claim this one is the most accurate because it has the smallest RMSE, which would indicate that it would only be off by 3.88 miles per gallon (mpg) in its predictions.
+
+```{r}
+summary(m4)
+```
+
 
 # Feature Engineering
 
@@ -61,10 +79,52 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r features}
-# Your code here
+# Engineer 10 features based on the 'name' column
+car=Auto %>% 
+  mutate(
+      ford = str_detect(name,"ford"),
+      chevy = str_detect(name,"chev"),
+      buick = str_detect(name,"buick"),
+      beemer = str_detect(name,"bmw"),
+      toyota = str_detect(name,"toyota"),
+      honda = str_detect(name,"honda"),
+      nissan = str_detect(name,"nissan"),
+      kia = str_detect(name,"kia"),
+      vw = str_detect(name,"volkswagen"),
+      dodge = str_detect(name,"dodge")
+  ) %>%
+  select(ford,chevy,buick,beemer,toyota,honda,nissan,kia,vw,dodge,mpg) # Ensure only 'mpg' and the engineered features remain
+
+car_all = Auto %>%
+    mutate(
+      ford = str_detect(name,"ford"),
+      chevy = str_detect(name,"chev"),
+      buick = str_detect(name,"buick"),
+      beemer = str_detect(name,"bmw"),
+      toyota = str_detect(name,"toyota"),
+      honda = str_detect(name,"honda"),
+      nissan = str_detect(name,"nissan"),
+      kia = str_detect(name,"kia"),
+      vw = str_detect(name,"volkswagen"),
+      dodge = str_detect(name,"dodge")
+  )
+
+#Remove missing values
+drop_na(car)
+drop_na(car_all)
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+```{r}
+# Get the RMSE of the model including all variables plus features
+sqrt(mean((car_all$mpg - predict(lm(formula = mpg ~ ., data = car_all), newdata = car_all))^2))
+```
+
+```{r}
+#Get the RMSE of the features-only model
+sqrt(mean((car$mpg - predict(lm(formula = mpg ~ ., data = car), newdata = car))^2))
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: The RMSE of the features-only model indicates that this model would be off by about 7 mpg. However, this is only predicting based on features using specific names only. If we look at our original model using all the features plus the additional information, we see that the model is far more accurate. In order to be more accurate, this would suggest that using additional information, such as the model year or its horsepower or weight, would lend to making my predictions much more accurate.
 
 # Classification
 
@@ -73,10 +133,32 @@ names(Auto)
 - Report on your Kappa value.
 
 ```{r classification}
-# Your code here
+control = trainControl(method = "cv", number = 5)
+  
+car_knn = car_all %>% 
+          select(chevy,honda,mpg,horsepower,year,cylinders,displacement, acceleration) %>%
+          mutate(
+            chevy=as.factor(chevy),
+            honda=as.factor(honda)
+                 )
+
+set.seed(505)
+split <- createDataPartition(car_knn$chevy, p = 0.8, list = FALSE)
+train_knn <- car_knn[split, ]
+test_knn <- car_knn[-split, ]
+
+fit_knn = train(chevy ~ .,
+                data = train_knn, 
+                method = "knn",
+                tuneLength = 15,
+                metric = "Kappa",
+                trControl = control)
+
+confusionMatrix(predict(fit_knn, test_knn),factor(test_knn$chevy))
+
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: I chose $K$-NN because it's better for smaller datasets, of which the dataset I'm using isn't very large. Hence, predictions based on proximity should work just fine for my purposes. The Kappa value gives us an idea of how much agreement there is between the model and the true label (in other words, the model's ability to predict a Chevy). 0.41 to 0.60 is considered "moderate," which isn't great, but it's not that bad either. In any case, a higher Kappa would give us more confidence in this model's ability to predict a Chevy based on the data.
 
 # Binary Classification
 
@@ -85,12 +167,50 @@ names(Auto)
 - Display and comment on an ROC curve.
 
 ```{r binary classification}
-# Your code here
+counts <- table(car_knn$honda)
+count_t <- counts["TRUE"]
+count_f <- counts["FALSE"]
+weigh_t <- max(count_t,count_f)/count_t
+weigh_f <- max(count_t,count_f)/count_f
+
+c(count_t,count_f,weigh_t,weigh_f)
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+```{r}
+train_knn <- train_knn %>% 
+               mutate(weight=ifelse(honda=="TRUE", weigh_t, weigh_f))
+
+fit_weights = train(honda ~ .,
+                    data = train_knn %>% select(-weight), 
+                    method = "naive_bayes",
+                    tuneLength = 15,
+                    metric = "Kappa",
+                    trControl = control,
+                    weights = train_knn$weight)
+
+confusionMatrix(predict(fit_weights, test_knn),factor(test_knn$honda))
+```
+
+```{r}
+# Let's ROC!
+prob <- predict(fit_weights, newdata = test_knn, type = "prob")[,2]
+myRoc <- roc(test_knn$honda, prob)
+plot(myRoc)
+```
+
+```{r}
+auc(myRoc)
+```
+
+```{r}
+fit_weights
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: The ROC curve gives us the accuracy of our model. Using weights, the area under the curve tells us that this weighted model is 89.32 percent accurate. By evaluating our weighted fit, however, we see that the reality of our Kappa is abysmal at best. According to the confusion matrix, it would seem that the model is better at predicting what isn't a Honda than what is a Honda.
 
 # Ethics
+
+> <span style="color:red;font-weight:bold">DISCLAIMER</span>: I have not yet taken Data Ethics. Per your instructions in class, I will not be completing this section of the midterm.
 
 - Based on your analysis, comment on the [Clean Air Act of 1970 and Ammendments of 1977](https://www.epa.gov/clean-air-act-overview/evolution-clean-air-act)
 - Discuss the civic reposibilities of data scientists for:
